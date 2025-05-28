@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define o arquivo do script python3
-python3_SCRIPT="db_update.py"
+python3_SCRIPT="local/db_update.py"
 
 # Limpa o banco de dados existente para um teste limpo (opcional)
 # CUIDADO: Isso APAGARÁ todos os dados anteriores!
