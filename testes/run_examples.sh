@@ -11,11 +11,11 @@ echo "Banco de dados limpo."
 echo "---"
 
 echo "Executando exemplos para o usuário 'alice':"
-python33 "$python3_SCRIPT" --usuario alice --pacote '{"valor": "75,50", "tipo_de_cartao": "debito", "banco": "NuBank", "descricao": "Compras do mês", "tipo": "gasto"}'
+python3 "$python3_SCRIPT" --usuario alice --pacote '{"valor": "75,50", "tipo_de_cartao": "debito", "banco": "NuBank", "descricao": "Compras do mês", "tipo": "gasto"}'
 sleep 1 # Pequena pausa para melhor visualização
 python3 "$python3_SCRIPT" --usuario alice --pacote '{"valor": "25,00", "tipo_de_cartao": "credito", "banco": "Itau", "descricao": "Lanche na padaria", "tipo": "gasto"}'
 sleep 1
-python3 "$python3_SCRIPT" --usuario alice --pacote '{"valor": "1200.00", "banco": "NuBank", "descricao": "Salário", "tipo": "receita"}' # Exemplo de receita
+python3 "$python3_SCRIPT" --usuario alice --pacote '{"valor": "1200.00", "banco": "NuBank", "descricao": "Salário", "tipo": "receita"}' --data "2025-05-21" # Exemplo de receita
 echo "---"
 
 echo "Executando exemplos para o usuário 'bob':"
