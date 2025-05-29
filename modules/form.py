@@ -3,9 +3,8 @@ import os
 from datetime import datetime
 import subprocess
 import json
-import pandas as pd # Necessário para funções de banco de dados, se elas fossem aqui
-import sqlite3 # Necessário para funções de banco de dados, se elas fossem aqui
-from pandas.errors import DatabaseError # Necessário para funções de banco de dados, se elas fossem aqui
+import sqlite3 
+
 
 
 # --- Configurações Comuns (repitidas ou passadas, mas aqui para o contexto da página) ---
