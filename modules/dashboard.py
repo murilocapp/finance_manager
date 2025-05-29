@@ -87,6 +87,7 @@ def dashboard_page(username):
         
         # Remove a coluna auxiliar
         df_transacoes = df_transacoes.drop(columns=['_data_para_ordenar'])
+        df_transacoes['tipo'] = df_transacoes['tipo'].str.upper()
         
         st.dataframe(df_transacoes, use_container_width=True)
         
@@ -94,8 +95,8 @@ def dashboard_page(username):
         st.subheader("Resumo Financeiro")
         col1, col2, col3 = st.columns(3)
         
-        total_gastos = df_transacoes[df_transacoes['tipo'] == 'gasto']['valor'].sum()
-        total_receitas = df_transacoes[df_transacoes['tipo'] == 'receita']['valor'].sum() 
+        total_gastos = df_transacoes[df_transacoes['tipo'].str.lower() == 'gasto']['valor'].sum()
+        total_receitas = df_transacoes[df_transacoes['tipo'].str.lower() == 'receita']['valor'].sum() 
         saldo_atual = total_receitas - total_gastos
 
         with col1:
@@ -109,7 +110,7 @@ def dashboard_page(username):
         
         # --- Gráfico de Barras com Cores por Banco ---
         st.subheader("Gastos por Banco")
-        gastos_por_banco = df_transacoes[df_transacoes['tipo'] == 'gasto'].groupby('banco')['valor'].sum().sort_values(ascending=False).reset_index()
+        gastos_por_banco = df_transacoes[df_transacoes['tipo'].str.lower() == 'gasto'].groupby('banco')['valor'].sum().sort_values(ascending=False).reset_index()
         
         if not gastos_por_banco.empty:
             fig_bank = px.bar(
@@ -133,10 +134,10 @@ def dashboard_page(username):
         st.subheader("Fluxo de Caixa: Receitas vs. Gastos por Categoria")
         
         # Receitas totais (como o ponto de partida)
-        receitas_total = df_transacoes[df_transacoes['tipo'] == 'receita']['valor'].sum()
+        receitas_total = df_transacoes[df_transacoes['tipo'].str.lower() == 'receita']['valor'].sum()
         
         # Gastos por descrição (para as quedas na cascata)
-        gastos_por_descricao = df_transacoes[df_transacoes['tipo'] == 'gasto'].groupby('descricao')['valor'].sum().sort_values(ascending=False)
+        gastos_por_descricao = df_transacoes[df_transacoes['tipo'].str.lower() == 'gasto'].groupby('descricao')['valor'].sum().sort_values(ascending=False)
 
         # Labels, medidas e valores para o gráfico de cascata
         names = []
