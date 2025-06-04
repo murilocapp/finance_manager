@@ -1,97 +1,75 @@
+# modules/dashboard.py
 import streamlit as st # type: ignore
 import pandas as pd # type: ignore
-import sqlite3
 import plotly.express as px # type: ignore
 import plotly.graph_objects as go # type: ignore
-import os # Necessário para DB_MASTER_NAME e path para o db
-
-# --- Configurações Comuns (repitadas ou passadas, mas aqui para o contexto da página) ---
-# Você pode ter um arquivo 'config.py' no futuro para centralizar isso
-DB_MASTER_NAME = 'gerenciador_financas.db' 
-
-# --- Configurações de Ícones ---
-FORM_ICON = "📝"
-DASHBOARD_ICON = "📊"
-
-
-# --- Funções Auxiliares de Formatação ---
-def format_currency_br(value):
-    """Formata um valor numérico para o padrão monetário brasileiro (R$ X.XXX,XX)."""
-    try:
-        value = float(value)
-        return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except (ValueError, TypeError):
-        return "R$ 0,00"
-
-# --- Funções do Banco de Dados (necessárias aqui para carregar as transações) ---
-# O ideal seria ter um arquivo 'db_utils.py' e importar de lá.
-def get_db_connection():
-    """Retorna uma conexão com o banco de dados principal."""
-    conn = sqlite3.connect(DB_MASTER_NAME)
-    return conn
-
-def get_user_finance_table_name(username):
-    """
-    Obtém o nome da tabela financeira de um usuário a partir da tabela mestra.
-    Retorna None se o usuário não for encontrado.
-    """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    # Criar a tabela usuarios_financas se não existir (para garantir)
-    cursor.execute("CREATE TABLE IF NOT EXISTS usuarios_financas (usuario TEXT PRIMARY KEY, tabela_financeira TEXT)")
-    conn.commit()
-
-    cursor.execute("SELECT tabela_financeira FROM usuarios_financas WHERE usuario = ?", (username,))
-    result = cursor.fetchone()
-    conn.close()
-    return result[0] if result else None
-
-def get_transactions_for_user(username):
-    """Obtém as transações de um usuário específico."""
-    table_name = get_user_finance_table_name(username) 
-    
-    if not table_name:
-        st.warning(f"Nenhuma tabela financeira encontrada para o usuário '{username}'.")
-        return pd.DataFrame() # Retorna DataFrame vazio se a tabela não existir
-
-    conn = get_db_connection()
-    df = pd.DataFrame()
-    try:
-        query = f"SELECT id, tipo, valor, tipo_cartao, banco, descricao, data_hora FROM {table_name} ORDER BY data_hora DESC, id DESC"
-        df = pd.read_sql_query(query, conn)
-    except Exception as e: # Captura exceção mais genérica para erro de tabela não encontrada
-        st.error(f"Erro ao carregar dados da tabela '{table_name}': {e}. Certifique-se de que a tabela existe ou que o usuário tem transações.")
-        df = pd.DataFrame() # Retorna DataFrame vazio em caso de erro
-    finally:
-        conn.close()
-    return df
-
+from .config import (
+    DASHBOARD_ICON,
+    FORM_ICON,
+    EXPECTED_UPLOAD_COLUMNS,
+    TRANSACTION_TEMPLATE_PATH,
+    UPLOAD_DATE_FORMAT,
+    UPLOAD_DATETIME_FORMAT
+)
+from . import db_utils # Relative import
+from .form import format_currency_br # Import from form.py or move to a common utils
+from io import StringIO # For file download/upload
 
 # --- Função da Página de Dashboard ---
 def dashboard_page(username):
     st.title(f"{DASHBOARD_ICON} Planilha Financeira de {username}")
-    st.subheader("Visão Geral das Suas Transações")
-
-    df_transacoes = get_transactions_for_user(username)
+    
+    df_transacoes = db_utils.get_transactions_for_user(username)
 
     if not df_transacoes.empty:
         df_transacoes['valor'] = pd.to_numeric(df_transacoes['valor'], errors='coerce')
-        df_transacoes.dropna(subset=['valor'], inplace=True) 
+        df_transacoes.dropna(subset=['valor'], inplace=True)
 
-        # Convertendo para datetime para ordenação
-        df_transacoes['_data_para_ordenar'] = pd.to_datetime(df_transacoes['data_hora'])
-        df_transacoes = df_transacoes.sort_values(by=['_data_para_ordenar', 'id'], ascending=[False, False])
+        if 'data_hora_dt' not in df_transacoes.columns and 'data_hora' in df_transacoes.columns:
+             df_transacoes['data_hora_dt'] = pd.to_datetime(df_transacoes['data_hora'])
+
+        if 'data_hora_dt' in df_transacoes.columns:
+            df_transacoes = df_transacoes.sort_values(by=['data_hora_dt', 'id'], ascending=[False, False])
+            df_transacoes['data_hora_display'] = df_transacoes['data_hora_dt'].dt.strftime('%d/%m/%Y %H:%M:%S')
+        else:
+            df_transacoes['data_hora_display'] = pd.Series(dtype='str')
+
+
+        df_display = df_transacoes[['id', 'tipo', 'valor', 'tipo_cartao', 'banco', 'descricao', 'data_hora_display']].copy()
+        df_display.rename(columns={'data_hora_display': 'Data/Hora'}, inplace=True)
+        df_display['tipo'] = df_display['tipo'].str.upper()
         
-        # Formata a coluna 'data_hora' para o formato desejado (string)
-        df_transacoes['data_hora'] = df_transacoes['_data_para_ordenar'].dt.strftime('%d/%m/%Y')
+        df_display['valor_formatado'] = df_display['valor'].apply(format_currency_br)
         
-        # Remove a coluna auxiliar
-        df_transacoes = df_transacoes.drop(columns=['_data_para_ordenar'])
-        df_transacoes['tipo'] = df_transacoes['tipo'].str.upper()
+        st.subheader("Visão Geral das Suas Transações")
+        st.dataframe(df_display[['id', 'tipo', 'valor_formatado', 'tipo_cartao', 'banco', 'descricao', 'Data/Hora']], use_container_width=True, hide_index=True)
         
-        st.dataframe(df_transacoes, use_container_width=True)
-        
+        if 'data_hora_dt' in df_transacoes.columns:
+            csv_data = df_transacoes[EXPECTED_UPLOAD_COLUMNS[:-1] + ['data_hora_dt']].copy()
+            csv_data['data_hora'] = csv_data['data_hora_dt'].dt.strftime(UPLOAD_DATETIME_FORMAT) 
+            csv_data_final = csv_data[EXPECTED_UPLOAD_COLUMNS] 
+        else: 
+            st.warning("Não foi possível preparar todas as colunas para o download devido à falta de 'data_hora_dt'. O arquivo pode estar incompleto.")
+            available_cols_for_export = [col for col in EXPECTED_UPLOAD_COLUMNS if col in df_transacoes.columns]
+            if 'data_hora' not in df_transacoes.columns and 'data_hora' in EXPECTED_UPLOAD_COLUMNS: 
+                 csv_data_final = pd.DataFrame(columns=EXPECTED_UPLOAD_COLUMNS) 
+            else:
+                csv_data_final = df_transacoes[available_cols_for_export].copy()
+                for col in EXPECTED_UPLOAD_COLUMNS: 
+                    if col not in csv_data_final.columns:
+                        csv_data_final[col] = pd.NA
+
+
+        csv_buffer = StringIO()
+        csv_data_final.to_csv(csv_buffer, index=False, sep=',', encoding='utf-8')
+        st.download_button(
+            label="📥 Baixar Transações (CSV)",
+            data=csv_buffer.getvalue(),
+            file_name=f"transacoes_{username}.csv",
+            mime="text/csv",
+        )
         st.markdown("---")
+
         st.subheader("Resumo Financeiro")
         col1, col2, col3 = st.columns(3)
         
@@ -108,7 +86,6 @@ def dashboard_page(username):
 
         st.markdown("---")
         
-        # --- Gráfico de Barras com Cores por Banco ---
         st.subheader("Gastos por Banco")
         gastos_por_banco = df_transacoes[df_transacoes['tipo'].str.lower() == 'gasto'].groupby('banco')['valor'].sum().sort_values(ascending=False).reset_index()
         
@@ -128,67 +105,127 @@ def dashboard_page(username):
         else:
             st.info("Nenhum gasto registrado para exibir a distribuição por banco.")
 
+        st.markdown("---") # Separador para o novo gráfico
+
+        # --- GRÁFICO DE PIZZA: FONTES DE RECEITA ---
+        st.subheader("🍕 Fontes de Receita por Descrição")
+        df_receitas = df_transacoes[df_transacoes['tipo'].str.lower() == 'receita'].copy() # Usar .copy() para evitar SettingWithCopyWarning
+        
+        if not df_receitas.empty:
+            # Certificar que 'valor' é numérico para o groupby
+            df_receitas['valor'] = pd.to_numeric(df_receitas['valor'], errors='coerce')
+            df_receitas.dropna(subset=['valor'], inplace=True)
+
+            receitas_por_descricao = df_receitas.groupby('descricao')['valor'].sum().sort_values(ascending=False).reset_index()
+            
+            if not receitas_por_descricao.empty and receitas_por_descricao['valor'].sum() > 0:
+                fig_receitas_pie = px.pie(
+                    receitas_por_descricao,
+                    names='descricao',
+                    values='valor',
+                    title='Distribuição Percentual das Fontes de Receita',
+                    hole=.3 # Cria um gráfico de "donut"
+                )
+                fig_receitas_pie.update_traces(
+                    textposition='inside', 
+                    textinfo='percent+label', # Mostrar percentual e a descrição (label)
+                    # Para mostrar o valor também: textinfo='percent+label+value'
+                    # Para formatar o valor, pode ser necessário adicionar uma coluna formatada ao DataFrame
+                )
+                fig_receitas_pie.update_layout(
+                    legend_title_text='Categorias de Receita',
+                    uniformtext_minsize=10, # Garante que o texto não seja muito pequeno
+                    uniformtext_mode='hide' # Esconde o texto se for muito pequeno para caber
+                )
+                st.plotly_chart(fig_receitas_pie, use_container_width=True)
+            else:
+                st.info("Nenhuma receita com valor positivo registrada com descrição para exibir o gráfico de pizza.")
+        else:
+            st.info("Nenhuma receita registrada para exibir o gráfico de fontes de receita.")
+        # --- FIM GRÁFICO DE PIZZA ---
+
         st.markdown("---")
 
-        # --- Gráfico de Cascata (Waterfall Chart) ---
-        st.subheader("Fluxo de Caixa: Receitas vs. Gastos por Categoria")
+        st.subheader("Fluxo de Caixa: Receitas vs. Gastos por Descrição")
         
-        # Receitas totais (como o ponto de partida)
-        receitas_total = df_transacoes[df_transacoes['tipo'].str.lower() == 'receita']['valor'].sum()
-        
-        # Gastos por descrição (para as quedas na cascata)
-        gastos_por_descricao = df_transacoes[df_transacoes['tipo'].str.lower() == 'gasto'].groupby('descricao')['valor'].sum().sort_values(ascending=False)
+        receitas_total_sum = df_transacoes[df_transacoes['tipo'].str.lower() == 'receita']['valor'].sum()
+        gastos_por_descricao_waterfall = df_transacoes[df_transacoes['tipo'].str.lower() == 'gasto'].groupby('descricao')['valor'].sum().sort_values(ascending=False)
 
-        # Labels, medidas e valores para o gráfico de cascata
-        names = []
-        measures = []
-        values = []
-        texts = []
+        if not gastos_por_descricao_waterfall.empty or receitas_total_sum > 0:
+            names_wf = ['Receitas Totais']
+            measures_wf = ['absolute']
+            values_wf = [receitas_total_sum]
+            texts_wf = [format_currency_br(receitas_total_sum)]
 
-        # Ponto de partida: Receitas
-        names.append('Receitas Totais')
-        measures.append('absolute')
-        values.append(receitas_total)
-        texts.append(format_currency_br(receitas_total))
+            for desc, val in gastos_por_descricao_waterfall.items():
+                names_wf.append(desc)
+                measures_wf.append('relative')
+                values_wf.append(-val) 
+                texts_wf.append(format_currency_br(val))
 
-        # Adiciona cada gasto como uma "queda"
-        for desc, val in gastos_por_descricao.items():
-            names.append(desc)
-            measures.append('relative')
-            values.append(-val) # Valor negativo para indicar diminuição
-            texts.append(format_currency_br(val)) # Texto deve mostrar o valor positivo do gasto
+            names_wf.append('Saldo Final')
+            measures_wf.append('total')
+            values_wf.append(saldo_atual) 
+            texts_wf.append(format_currency_br(saldo_atual))
 
-        # Ponto final: Saldo Atual
-        names.append('Saldo Final')
-        measures.append('total')
-        values.append(saldo_atual)
-        texts.append(format_currency_br(saldo_atual))
-
-        fig_waterfall = go.Figure(go.Waterfall(
-            name = "Fluxo de Caixa",
-            orientation = "v",
-            measure = measures,
-            x = names,
-            textposition = "outside",
-            text = texts,
-            y = values,
-            connector = {"line":{"color":"rgb(63, 63, 63)"}},
-        ))
-
-        fig_waterfall.update_layout(
-            title_text = "Como suas receitas se transformam em saldo",
-            showlegend = False,
-            height=500
-        )
-        
-        st.plotly_chart(fig_waterfall, use_container_width=True)
-        
-        if gastos_por_descricao.empty and receitas_total == 0:
-            st.info("Nenhuma receita ou gasto registrado para exibir o fluxo de caixa.")
+            fig_waterfall = go.Figure(go.Waterfall(
+                name = "Fluxo de Caixa", orientation = "v", measure = measures_wf,
+                x = names_wf, textposition = "outside", text = texts_wf, y = values_wf,
+                connector = {"line":{"color":"rgb(63, 63, 63)"}},
+            ))
+            fig_waterfall.update_layout(title_text = "Como suas receitas se transformam em saldo", showlegend = False, height=600)
+            st.plotly_chart(fig_waterfall, use_container_width=True)
+        else:
+            st.info("Nenhuma receita ou gasto significativo registrado para exibir o fluxo de caixa.")
 
     else:
-        st.info("Nenhuma transação registrada para este usuário ainda.")
+        st.info("Nenhuma transação registrada para este usuário ainda. Adicione algumas no formulário ou faça um upload!")
+
+    st.markdown("---")
+    st.subheader("📤 Upload de Transações em Lote (CSV)")
     
-    st.sidebar.button("Formulário de Transação " + FORM_ICON, on_click=lambda: st.session_state.update(page="form"), use_container_width=True)
-    
-   
+    try:
+        with open(TRANSACTION_TEMPLATE_PATH, "rb") as fp:
+            st.download_button(
+                label="Baixar Modelo CSV de Transações",
+                data=fp,
+                file_name="transaction_template.csv",
+                mime="text/csv"
+            )
+    except FileNotFoundError:
+        st.error(f"Arquivo de modelo '{TRANSACTION_TEMPLATE_PATH}' não encontrado.")
+
+    st.write(f"Use o modelo para formatar seus dados. As colunas esperadas são: `{', '.join(EXPECTED_UPLOAD_COLUMNS)}`.")
+    st.write(f"Formatos de data aceitos na coluna 'data_hora': `{UPLOAD_DATE_FORMAT}` (ex: 31/12/2023) ou `{UPLOAD_DATETIME_FORMAT}` (ex: 31/12/2023 15:30:00).")
+
+
+    uploaded_file = st.file_uploader("Escolha um arquivo CSV", type="csv", key="transaction_uploader")
+    if uploaded_file is not None:
+        try:
+            df_upload = pd.read_csv(uploaded_file)
+            
+            missing_cols = [col for col in EXPECTED_UPLOAD_COLUMNS if col not in df_upload.columns]
+            if missing_cols:
+                st.error(f"O arquivo CSV enviado não contém as colunas esperadas: {', '.join(missing_cols)}. Por favor, use o modelo.")
+            else:
+                df_to_process = df_upload[EXPECTED_UPLOAD_COLUMNS].copy() 
+                st.write("Pré-visualização dos dados carregados (primeiras 5 linhas):")
+                st.dataframe(df_to_process.head())
+
+                if st.button("Confirmar e Inserir Transações do CSV"):
+                    with st.spinner("Processando transações..."):
+                        success_count, fail_count = db_utils.bulk_insert_transactions(username, df_to_process)
+                    if success_count > 0:
+                        st.success(f"{success_count} transações inseridas com sucesso!")
+                    if fail_count > 0:
+                        st.warning(f"{fail_count} transações falharam ao serem inseridas. Verifique os avisos acima.")
+                    if success_count > 0:
+                         st.rerun() 
+        except pd.errors.EmptyDataError:
+            st.error("O arquivo CSV enviado está vazio.")
+        except Exception as e:
+            st.error(f"Erro ao processar o arquivo CSV: {e}")
+
+    if st.sidebar.button("Formulário de Transação " + FORM_ICON, use_container_width=True, key="dash_to_form_button"):
+        st.session_state['page'] = "form"
+        st.rerun()

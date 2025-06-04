@@ -1,0 +1,4 @@
+tipo,valor,tipo_cartao,banco,descricao,data_hora
+Gasto,50.99,Débito,MeuBanco,Compras Supermercado,01/06/2025
+Receita,1200.50,Outro/Dinheiro/Pix,EmpresaX,Salário,05/06/2025 10:00:00
+Gasto,15.00,Crédito,BancoY,Café,02/06/2025
