@@ -1,101 +1,17 @@
+# modules/form.py
 import streamlit as st  # type: ignore
-import os
 from datetime import datetime
-import subprocess
-import json
-import sqlite3 
+from .config import FORM_ICON, DASHBOARD_ICON # Relative import
+from . import db_utils # Relative import
 
-
-
-# --- Configurações Comuns (repitidas ou passadas, mas aqui para o contexto da página) ---
-# Você pode ter um arquivo 'config.py' no futuro para centralizar isso
-DB_UPDATE_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'local','db_update.py')
-DB_MASTER_NAME = 'gerenciador_financas.db' 
-
-# --- Configurações de Ícones ---
-FORM_ICON = "📝"
-DASHBOARD_ICON = "📊"
-
-
-# --- Funções do Banco de Dados (necessárias aqui para a submissão do formulário) ---
-# Essas funções foram movidas para cá para manter o módulo self-contained para a sua funcionalidade
-# O ideal seria ter um arquivo 'db_utils.py' e importar de lá.
-def get_db_connection():
-    """Retorna uma conexão com o banco de dados principal."""
-    conn = sqlite3.connect(DB_MASTER_NAME)
-    return conn
-
-def get_user_finance_table_name(username):
-    """
-    Obtém o nome da tabela financeira de um usuário a partir da tabela mestra.
-    Cria o usuário e a tabela se não existirem.
-    """
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("CREATE TABLE IF NOT EXISTS usuarios_financas (usuario TEXT PRIMARY KEY, tabela_financeira TEXT)")
-    conn.commit()
-
-    cursor.execute("SELECT tabela_financeira FROM usuarios_financas WHERE usuario = ?", (username,))
-    result = cursor.fetchone()
-
-    if not result:
-        table_name = f"financas_{username}"
-        cursor.execute("INSERT INTO usuarios_financas (usuario, tabela_financeira) VALUES (?, ?)", (username, table_name))
-        conn.commit()
-        create_table_sql = f"""
-        CREATE TABLE IF NOT EXISTS {table_name} (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tipo TEXT NOT NULL,
-            valor REAL NOT NULL,
-            tipo_cartao TEXT,
-            banco TEXT,
-            descricao TEXT,
-            data_hora TEXT NOT NULL
-        );
-        """
-        cursor.execute(create_table_sql)
-        conn.commit()
-        st.info(f"Usuário '{username}' e sua tabela financeira '{table_name}' criados.")
-        conn.close() 
-        return table_name
-    
-    conn.close()
-    return result[0]
-
-def run_db_update_script(username, json_data, transaction_date=None):
-    """
-    Executa o script db_update.py como um subprocesso.
-    """
-    json_data_for_db = json_data.copy()
-    if 'valor' in json_data_for_db and isinstance(json_data_for_db['valor'], (float, int)):
-        json_data_for_db['valor'] = f"{json_data_for_db['valor']:.2f}".replace('.', ',')
-
-    command = [
-        "python3",
-        DB_UPDATE_SCRIPT_PATH,
-        "--usuario", username,
-        "--pacote", json.dumps(json_data_for_db)
-    ]
-    if transaction_date:
-        command.extend(["--data", transaction_date])
-    
+# --- Funções Auxiliares de Formatação (pode ser movida para um utils.py geral se houver mais) ---
+def format_currency_br(value):
+    """Formata um valor numérico para o padrão monetário brasileiro (R$ X.XXX,XX)."""
     try:
-        result = subprocess.run(command, capture_output=True, text=True, check=True)
-        if result.returncode == 0:
-            st.success(f"Transação registrada com sucesso! {result.stdout}")
-            return True
-        else:
-            st.error(f"Erro ao atualizar o banco de dados (código {result.returncode}): {result.stderr}")
-            st.error(f"Comando executado: {' '.join(command)}")
-            return False
-    except FileNotFoundError:
-        st.error(f"Erro: Script '{DB_UPDATE_SCRIPT_PATH}' não encontrado. Verifique o caminho.")
-        st.error(f"Caminho procurado: {DB_UPDATE_SCRIPT_PATH}")
-        return False
-    except Exception as e:
-        st.error(f"Ocorreu um erro inesperado ao executar o script: {e}")
-        return False
-
+        value = float(value)
+        return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except (ValueError, TypeError):
+        return "R$ 0,00"
 
 # --- Função da Página de Formulário ---
 def transaction_form_page(username):
@@ -147,9 +63,16 @@ def transaction_form_page(username):
 
             transaction_date = st.date_input(
                 "Data da Transação",
-                datetime.now().date(),
+                datetime.now().date(), # Defaults to date part
                 help="Data em que a transação ocorreu."
             )
+            
+            transaction_time = st.time_input(
+                "Hora da Transação (opcional)",
+                datetime.now().time(), # Defaults to current time
+                help="Hora em que a transação ocorreu. Se não especificado, será 00:00."
+            )
+
 
             st.markdown("---")
             submit_button = st.form_submit_button(label=f"{FORM_ICON} Registrar Transação")
@@ -162,25 +85,29 @@ def transaction_form_page(username):
                 elif not bank.strip():
                      st.error("Por favor, forneça o nome do banco ou instituição.")
                 else:
-                    parsed_data = {
-                        "tipo": transaction_type.lower(),
+                    # Combine date and time
+                    full_transaction_datetime = datetime.combine(transaction_date, transaction_time)
+
+                    transaction_details = {
+                        "tipo": transaction_type, # Keep original casing for now, db_utils will handle lower()
                         "valor": value,
-                        "tipo_de_cartao": card_type.lower().replace(' ', '_').replace('/', '_'),
-                        "banco": bank.strip(),
-                        "descricao": description.strip()
+                        "tipo_cartao": card_type,
+                        "banco": bank,
+                        "descricao": description,
+                        "data_hora": full_transaction_datetime # Pass datetime object
                     }
                     
-                    if run_db_update_script(username, parsed_data, transaction_date.strftime('%Y-%m-%d')):
+                    if db_utils.insert_transaction(username, transaction_details):
                         st.success("Transação registrada com sucesso! ✅")
                     else:
                         st.error("Houve um erro ao registrar a transação. Verifique os detalhes e tente novamente. ❌")
 
     with col_info:
-        st.info("💡 **Dicas para registrar:**\n\n- Seja claro na descrição para facilitar a busca depois.\n- 'Outro/Dinheiro/Pix' é ideal para transações que não usam cartão específico.\n- A data padrão é a de hoje, mas você pode mudar!")
+        st.info("💡 **Dicas para registrar:**\n\n- Seja claro na descrição para facilitar a busca depois.\n- 'Outro/Dinheiro/Pix' é ideal para transações que não usam cartão específico.\n- A data e hora padrão são as atuais, mas você pode mudar!")
         st.markdown("---")
         st.write("📈 **Acompanhe seus Gastos!**")
         st.write("Clique no botão 'DASHBOARD' na barra lateral para ver um resumo e todas as suas transações.")
 
-    st.sidebar.button("DASHBOARD " + DASHBOARD_ICON, on_click=lambda: st.session_state.update(page="dashboard"), use_container_width=True)
-    
-    
+    if st.sidebar.button("DASHBOARD " + DASHBOARD_ICON, use_container_width=True, key="form_to_dash_button"):
+        st.session_state['page'] = "dashboard"
+        st.rerun()

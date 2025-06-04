@@ -1,31 +1,70 @@
+# app.py
 import streamlit as st  # type: ignore
 
-# --- Importa as funções das páginas ---
-from modules.form import transaction_form_page # Importa a função da página de formulário
-from modules.dashboard import dashboard_page # Importa a função da página de dashboard
-
-# --- Configurações Globais ---
-DEFAULT_USERNAME = "Murilo" 
-PAGE_ICON = "💰" # Ícone geral do aplicativo (para set_page_config)
+# --- Importa as funções das páginas e utilitários ---
+from modules.form import transaction_form_page
+from modules.dashboard import dashboard_page
+from modules.auth import login_page, signup_page
+from modules import db_utils # Import db_utils
+from modules.config import APP_ICON, FORM_ICON, DASHBOARD_ICON, LOGIN_ICON, SIGNUP_ICON
 
 # --- Configurações Iniciais do Streamlit ---
-# Deve ser chamado APENAS UMA VEZ e no topo do script.
 st.set_page_config(
-    page_title="Gerenciador Financeiro - Murilo",
-    page_icon=PAGE_ICON,
-    layout="wide" 
+    page_title="Gerenciador Financeiro Pessoal",
+    page_icon=APP_ICON,
+    layout="wide"
 )
 
-# --- Controle de Navegação Principal ---
-# Inicializa o estado da página se não existir
+# --- Inicialização do Banco de Dados ---
+# Garante que as tabelas de autenticação e mestra de finanças existam.
+db_utils.create_initial_tables()
+
+# --- Controle de Navegação e Estado da Sessão ---
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
 if 'page' not in st.session_state:
-    st.session_state['page'] = "form" # Começa na página de formulário
+    st.session_state['page'] = "login" # Default to login page
+if 'username' not in st.session_state:
+    st.session_state['username'] = None
 
-# Atribui o usuário padrão ao estado da sessão
-st.session_state['username'] = DEFAULT_USERNAME
+# --- Renderização da Página ---
+if not st.session_state['logged_in']:
+    st.sidebar.title("Bem-vindo!")
+    nav_choice = st.sidebar.radio("Navegação", ["Login", "Criar Conta"], key="auth_nav",
+                                  captions=[f"{LOGIN_ICON} Acesse sua conta", f"{SIGNUP_ICON} Novo por aqui?"])
+    
+    if nav_choice == "Login":
+        st.session_state['page'] = "login"
+        login_page()
+    elif nav_choice == "Criar Conta":
+        st.session_state['page'] = "signup"
+        signup_page()
+else:
+    # Usuário Logado
+    st.sidebar.title(f"Olá, {st.session_state['username']}!")
+    st.sidebar.markdown("---")
+    
+    if st.sidebar.button(f"{FORM_ICON} Registrar Transação", use_container_width=True, key="sidebar_to_form"):
+        st.session_state['page'] = "form"
+        st.rerun() # Use rerun for page changes
 
-# Renderiza a página baseada no estado atual
-if st.session_state['page'] == "form":
-    transaction_form_page(st.session_state['username'])
-elif st.session_state['page'] == "dashboard":
-    dashboard_page(st.session_state['username'])
+    if st.sidebar.button(f"{DASHBOARD_ICON} Meu Dashboard", use_container_width=True, key="sidebar_to_dashboard"):
+        st.session_state['page'] = "dashboard"
+        st.rerun()
+
+    st.sidebar.markdown("---")
+    if st.sidebar.button("🚪 Sair", use_container_width=True, key="logout_button"):
+        st.session_state['logged_in'] = False
+        st.session_state['username'] = None
+        st.session_state['page'] = "login"
+        st.success("Você saiu com segurança.")
+        st.rerun()
+
+    # Renderiza a página principal baseada no estado
+    if st.session_state['page'] == "form":
+        transaction_form_page(st.session_state['username'])
+    elif st.session_state['page'] == "dashboard":
+        dashboard_page(st.session_state['username'])
+    else: # Fallback se algo der errado com o estado da página
+        st.session_state['page'] = "form" # Default to form if logged in and page state is odd
+        transaction_form_page(st.session_state['username'])
