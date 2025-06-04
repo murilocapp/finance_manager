@@ -1,3 +1,5 @@
 *.db
 
 .venv
+
+modules/__pycache__
