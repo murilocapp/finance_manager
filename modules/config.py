@@ -8,13 +8,55 @@ LOGIN_ICON = "🔑"
 SIGNUP_ICON = "👤➕"
 APP_ICON = "💰"
 
-# For transaction uploads
-EXPECTED_UPLOAD_COLUMNS = ['tipo', 'valor', 'tipo_cartao', 'banco', 'descricao', 'data_hora']
-# Expected date format in CSV, e.g., 'DD/MM/YYYY' or 'YYYY-MM-DD HH:MM:SS'
-# SQLite prefers 'YYYY-MM-DD HH:MM:SS'
-UPLOAD_DATE_FORMAT = '%d/%m/%Y' # Example: 31/12/2023
-UPLOAD_DATETIME_FORMAT = '%d/%m/%Y %H:%M:%S' # Example: 31/12/2023 15:30:00
-# If only date is provided, time will be set to 00:00:00
+# Tipos de transação disponíveis
+TRANSACTION_TYPES = ["Gasto", "Receita", "Investimento"]
 
-# Path for the transaction template file
-TRANSACTION_TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'transaction_template.csv')
+# Categorias padrão por tipo de transação
+DEFAULT_CATEGORIES = {
+    "Gasto": [
+        "Alimentação",
+        "Moradia",
+        "Transporte",
+        "Saúde",
+        "Educação",
+        "Lazer",
+        "Vestuário",
+        "Serviços & Assinaturas",
+        "Outros",
+    ],
+    "Receita": [
+        "Salário",
+        "Freelance",
+        "Reembolso",
+        "Aluguel recebido",
+        "Outros",
+    ],
+    "Investimento": [
+        "Renda Fixa",
+        "Renda Variável",
+        "Fundos",
+        "Criptoativos",
+        "Previdência",
+        "Outros",
+    ],
+}
+
+# Opções de agrupamento para o Sankey
+SANKEY_GROUP_OPTIONS = ["categoria", "banco", "descricao"]
+SANKEY_GROUP_LABELS = {
+    "categoria": "Categoria",
+    "banco":     "Banco / Instituição",
+    "descricao": "Descrição",
+}
+
+# Colunas esperadas no upload CSV
+EXPECTED_UPLOAD_COLUMNS = [
+    'tipo', 'valor', 'tipo_cartao', 'banco', 'descricao', 'categoria', 'data_hora'
+]
+
+UPLOAD_DATE_FORMAT     = '%d/%m/%Y'
+UPLOAD_DATETIME_FORMAT = '%d/%m/%Y %H:%M:%S'
+
+TRANSACTION_TEMPLATE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), 'transaction_template.csv'
+)

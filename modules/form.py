@@ -1,19 +1,18 @@
 # modules/form.py
 import streamlit as st  # type: ignore
 from datetime import datetime
-from .config import FORM_ICON, DASHBOARD_ICON # Relative import
-from . import db_utils # Relative import
+from .config import FORM_ICON, DASHBOARD_ICON, TRANSACTION_TYPES, DEFAULT_CATEGORIES
+from . import db_utils
 
-# --- Funções Auxiliares de Formatação (pode ser movida para um utils.py geral se houver mais) ---
+
 def format_currency_br(value):
-    """Formata um valor numérico para o padrão monetário brasileiro (R$ X.XXX,XX)."""
     try:
         value = float(value)
         return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     except (ValueError, TypeError):
         return "R$ 0,00"
 
-# --- Função da Página de Formulário ---
+
 def transaction_form_page(username):
     st.title(f"{FORM_ICON} Olá, {username}! Registre suas Finanças")
     st.subheader("Insira os detalhes de sua transação abaixo.")
@@ -21,58 +20,66 @@ def transaction_form_page(username):
     col_form, col_info = st.columns([2, 1])
 
     with col_form:
+        # Tipo fora do form para atualizar categorias de forma reativa
+        transaction_type = st.selectbox(
+            "Tipo de Transação",
+            TRANSACTION_TYPES,
+            key="new_tx_tipo",
+            help="Selecione se é um gasto, receita ou investimento.",
+        )
+
         with st.form(key='transaction_form', clear_on_submit=True):
             st.markdown("---")
-            
-            transaction_type = st.selectbox(
-                "Tipo de Transação",
-                ("Gasto", "Receita"),
-                index=0,
-                help="Selecione se é um gasto ou uma receita."
+
+            tipo_atual = st.session_state.get("new_tx_tipo", "Gasto")
+            cat_options = DEFAULT_CATEGORIES.get(tipo_atual, ["Outros"])
+            categoria = st.selectbox(
+                "Categoria",
+                cat_options,
+                help="Categoria da transação. Usada para agrupar no gráfico Sankey.",
             )
 
             value = st.number_input(
                 "Valor (R$)",
                 min_value=0.01,
-                value=None, 
+                value=None,
                 format="%.2f",
                 help="Digite o valor da transação (ex: 45.00).",
-                key="value_input"
+                key="value_input",
             )
 
             card_type = st.selectbox(
-                "Tipo de Cartão",
+                "Tipo de Pagamento",
                 ("Débito", "Crédito", "Outro/Dinheiro/Pix"),
                 index=2,
-                help="Selecione o tipo de cartão usado, ou 'Outro' para dinheiro/pix etc."
+                help="Selecione o tipo de pagamento.",
             )
 
             bank = st.text_input(
                 "Banco/Instituição",
-                placeholder="Ex: Nubank, Itaú, Salário",
+                placeholder="Ex: Nubank, Itaú, XP Investimentos",
                 help="Nome do banco ou fonte/destino do dinheiro.",
-                key="bank_input"
+                key="bank_input",
             )
 
             description = st.text_area(
                 "Descrição",
-                placeholder="Ex: Supermercado, Aluguel, Salário mensal",
+                placeholder="Ex: Supermercado, Aluguel, Tesouro Direto",
                 help="Uma breve descrição da transação.",
-                key="description_input"
+                key="description_input",
             )
 
             transaction_date = st.date_input(
                 "Data da Transação",
-                datetime.now().date(), # Defaults to date part
-                help="Data em que a transação ocorreu."
-            )
-            
-            transaction_time = st.time_input(
-                "Hora da Transação (opcional)",
-                datetime.now().time(), # Defaults to current time
-                help="Hora em que a transação ocorreu. Se não especificado, será 00:00."
+                datetime.now().date(),
+                help="Data em que a transação ocorreu.",
             )
 
+            transaction_time = st.time_input(
+                "Hora da Transação (opcional)",
+                datetime.now().time(),
+                help="Hora em que a transação ocorreu.",
+            )
 
             st.markdown("---")
             submit_button = st.form_submit_button(label=f"{FORM_ICON} Registrar Transação")
@@ -83,30 +90,34 @@ def transaction_form_page(username):
                 elif not description.strip():
                     st.error("Por favor, forneça uma descrição para a transação.")
                 elif not bank.strip():
-                     st.error("Por favor, forneça o nome do banco ou instituição.")
+                    st.error("Por favor, forneça o nome do banco ou instituição.")
                 else:
-                    # Combine date and time
-                    full_transaction_datetime = datetime.combine(transaction_date, transaction_time)
-
+                    full_dt = datetime.combine(transaction_date, transaction_time)
                     transaction_details = {
-                        "tipo": transaction_type, # Keep original casing for now, db_utils will handle lower()
+                        "tipo": tipo_atual,
                         "valor": value,
                         "tipo_cartao": card_type,
                         "banco": bank,
                         "descricao": description,
-                        "data_hora": full_transaction_datetime # Pass datetime object
+                        "categoria": categoria,
+                        "data_hora": full_dt,
                     }
-                    
                     if db_utils.insert_transaction(username, transaction_details):
                         st.success("Transação registrada com sucesso! ✅")
                     else:
-                        st.error("Houve um erro ao registrar a transação. Verifique os detalhes e tente novamente. ❌")
+                        st.error("Houve um erro ao registrar a transação. ❌")
 
     with col_info:
-        st.info("💡 **Dicas para registrar:**\n\n- Seja claro na descrição para facilitar a busca depois.\n- 'Outro/Dinheiro/Pix' é ideal para transações que não usam cartão específico.\n- A data e hora padrão são as atuais, mas você pode mudar!")
+        tipo_info = st.session_state.get("new_tx_tipo", "Gasto")
+        if tipo_info == "Investimento":
+            st.info("💡 **Dicas para Investimentos:**\n\n- Use a categoria para distinguir Renda Fixa de Renda Variável.\n- O valor será deduzido do saldo no gráfico Sankey.")
+        elif tipo_info == "Receita":
+            st.info("💡 **Dicas para Receitas:**\n\n- Seja claro na descrição para identificar a fonte no Sankey.\n- Cada receita forma um nó de origem no fluxo.")
+        else:
+            st.info("💡 **Dicas para Gastos:**\n\n- A categoria agrupa seus gastos no Sankey.\n- Use categorias consistentes para análise mais clara.")
         st.markdown("---")
         st.write("📈 **Acompanhe seus Gastos!**")
-        st.write("Clique no botão 'DASHBOARD' na barra lateral para ver um resumo e todas as suas transações.")
+        st.write("Clique no botão 'DASHBOARD' na barra lateral para ver o resumo e o gráfico Sankey.")
 
     if st.sidebar.button("DASHBOARD " + DASHBOARD_ICON, use_container_width=True, key="form_to_dash_button"):
         st.session_state['page'] = "dashboard"
