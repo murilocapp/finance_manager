@@ -1,13 +1,13 @@
 # 💰 Finance Manager — Gerenciador Financeiro Pessoal
 
-> **Status:** Em retomada ativa | Stack original: Python · Streamlit · SQLite · Plotly  
+> **Status:** MVP funcional com analytics avançado | Stack: Python · Streamlit · SQLite · Plotly  
 > **Autor:** Murilo Appugliese — Data Science/Engineering @ Hospital Albert Einstein | Mestrando Eng. Biomédica @ UFABC
 
 ---
 
 ## 📋 Visão Geral
 
-O **Finance Manager** é uma aplicação web de gestão financeira pessoal construída com **Streamlit**, voltada para o registro, visualização e análise de transações financeiras por usuário. O projeto implementa um ciclo completo de produto de dados: ingestão (manual + upload em lote), persistência (SQLite), transformação (Pandas) e visualização interativa (Plotly).
+O **Finance Manager** é uma aplicação web de gestão financeira pessoal construída com **Streamlit**, voltada para o registro, visualização e análise de transações financeiras por usuário. O projeto implementa um ciclo completo de produto de dados: ingestão (manual + upload em lote), persistência (SQLite), transformação (Pandas) e visualização interativa (Plotly), incluindo um **Sankey hierárquico** de fluxo financeiro.
 
 ---
 
@@ -17,16 +17,16 @@ O **Finance Manager** é uma aplicação web de gestão financeira pessoal const
 finance_manager/
 ├── app.py                    # Entry point — roteamento de páginas e gestão de sessão
 ├── requirements.txt          # Dependências Python
-├── transaction_template.csv  # Template para upload em lote
+├── transaction_template.csv  # Template para upload em lote (inclui coluna categoria)
 ├── .devcontainer/
 │   └── devcontainer.json     # Configuração GitHub Codespaces (Python 3.11)
 └── modules/
     ├── __init__.py
-    ├── config.py             # Constantes globais (paths, ícones, formatos de data)
+    ├── config.py             # Constantes globais (tipos, categorias, opções Sankey, paths)
     ├── auth.py               # Páginas de login e cadastro
-    ├── db_utils.py           # Camada de acesso a dados (SQLite)
+    ├── db_utils.py           # Camada de acesso a dados (SQLite) — CRUD completo
     ├── form.py               # Formulário de registro de transação
-    └── dashboard.py          # Dashboard analítico com gráficos e export
+    └── dashboard.py          # Dashboard analítico — gráficos, filtros, edição
 ```
 
 ### Modelo de Dados (SQLite)
@@ -35,37 +35,74 @@ finance_manager/
 |--------|-----------|
 | `users_auth` | Autenticação: `username (PK)`, `password_hash` (SHA-256) |
 | `usuarios_financas` | Mapeamento usuário → tabela financeira pessoal |
-| `financas_<username>` | Transações do usuário: `id`, `tipo`, `valor`, `tipo_cartao`, `banco`, `descricao`, `data_hora` |
+| `financas_<username>` | Transações: `id`, `tipo`, `valor`, `tipo_cartao`, `banco`, `descricao`, `categoria`, `data_hora` |
 
-> Cada usuário possui sua própria tabela de transações, isolando os dados por conta.
+> Migração automática: tabelas antigas sem a coluna `categoria` recebem `ALTER TABLE` no primeiro acesso.
 
 ---
 
 ## ✅ O que está implementado
 
 ### Autenticação
-- Cadastro de novos usuários com validação de senha (mínimo 6 caracteres)
+- Cadastro com validação de senha (mínimo 6 caracteres)
 - Login com verificação de hash SHA-256
 - Controle de sessão via `st.session_state`
 - Provisionamento automático da tabela financeira no primeiro acesso
 
 ### Registro de Transações
-- Formulário interativo: tipo (Gasto/Receita), valor, tipo de cartão, banco, descrição, data e hora
+- **3 tipos de transação:** Gasto, Receita, Investimento
+- **Categoria dinâmica:** selectbox muda as opções conforme o tipo selecionado
+  - Gasto → Alimentação, Moradia, Transporte, Saúde, Educação, Lazer, Vestuário, Serviços & Assinaturas, Outros
+  - Receita → Salário, Freelance, Reembolso, Aluguel recebido, Outros
+  - Investimento → Renda Fixa, Renda Variável, Fundos, Criptoativos, Previdência, Outros
+- Campos completos: valor, tipo de pagamento, banco/instituição, descrição, data e hora
 - Validação de campos obrigatórios antes da persistência
 - Upload em lote via CSV com template disponível para download
-- Suporte a dois formatos de data: `DD/MM/YYYY` e `DD/MM/YYYY HH:MM:SS`
+- Suporte a dois formatos de data no upload: `DD/MM/YYYY` e `DD/MM/YYYY HH:MM:SS`
 
 ### Dashboard Analítico
-- Tabela de transações com ordenação por data (mais recentes primeiro)
-- Métricas consolidadas: Total de Gastos, Total de Receitas, Saldo Atual
-- **Gráfico de barras:** Gastos por banco/instituição
-- **Gráfico de pizza (donut):** Distribuição percentual de fontes de receita por descrição
-- **Waterfall chart:** Fluxo de caixa — como as receitas se transformam em saldo após cada gasto
-- Export das transações em CSV
+
+**Filtro de período (sidebar)**
+- Opções: Este mês · Últimos 3 meses · Este ano · Todo o período · Personalizado
+- Filtra todas as métricas, gráficos e a tabela simultaneamente
+- Contador de transações visíveis no período selecionado
+
+**Tabela de transações**
+- Colunas: id, tipo, valor, tipo de pagamento, banco, descrição, categoria, data/hora
+- Ordenação por data decrescente
+- Export das transações filtradas em CSV
+
+**Editar / Excluir transação**
+- Expander com selectbox de ID (exibe tipo + valor + descrição para fácil identificação)
+- Tab **Editar:** formulário pré-preenchido com todos os campos, categoria reativa ao tipo
+- Tab **Excluir:** confirmação explícita com nome e valor da transação
+
+**Métricas consolidadas (4 colunas)**
+- Total de Receitas · Total de Gastos · Investimentos · Saldo Disponível  
+  *(Saldo = Receitas − Gastos − Investimentos)*
+
+**Gráfico de barras — Gastos por Banco**
+- Ranking de gastos por instituição financeira com valores formatados
+
+**Gráfico de pizza (donut) — Fontes de Receita**
+- Distribuição percentual das receitas por descrição
+
+**Sankey — Fluxo Financeiro (3 níveis)**
+```
+Fontes de receita ──→ Orçamento Total ──→ Gastos (agregado) ──→ categorias de gasto
+                                      ──→ Investimentos (agregado) ──→ ativos individuais
+                                      ──→ Saldo Final
+```
+- Seletor de agrupamento: **Categoria · Banco / Instituição · Descrição**
+- Fallback automático: se `categoria` estiver vazia, usa `descricao`
+- Nós e links com cores distintas por nível (verde → azul → vermelho/roxo → verde)
+- Hover exibe valor formatado em R$
+- Labels em preto destacado (Arial Black)
+- Nós agregados "Gastos" e "Investimentos" aparecem apenas quando há transações do tipo
 
 ### Infraestrutura
 - Configurado para rodar direto no **GitHub Codespaces** via `devcontainer.json`
-- Script `run_examples.sh` para popular o banco com dados de teste
+- Script `testes/run_examples.sh` para popular o banco com dados de teste
 
 ---
 
@@ -132,10 +169,10 @@ SHA-256 direto não é adequado para senhas. `bcrypt` ou `argon2-cffi` aplicam s
 ### Fase 2 — Stack Moderna de Dados
 
 **Apache Airflow para orquestração de pipelines**  
-Implementar DAGs para: sincronização de extratos bancários simulados, geração de relatórios periódicos, e triggers de alertas financeiros. Alinha diretamente com a stack do GRIOh.
+Implementar DAGs para: sincronização de extratos bancários simulados, geração de relatórios periódicos, e triggers de alertas financeiros.
 
 **MinIO como object storage**  
-Armazenar os CSVs exportados, backups do banco e futuramente PDFs de relatórios no MinIO local, em vez do filesystem. Demonstra conhecimento de storage distribuído on-premises.
+Armazenar os CSVs exportados, backups do banco e futuramente PDFs de relatórios no MinIO local, em vez do filesystem.
 
 **dbt para transformações analíticas**  
 Criar modelos dbt sobre o PostgreSQL: `stg_transactions`, `fct_monthly_summary`, `dim_categories`. Documenta a linhagem dos dados e gera um catálogo automático via `dbt docs generate`.
@@ -151,26 +188,26 @@ Detectar drift nos padrões de gastos do usuário ao longo do tempo, com relató
 Módulo de chat integrado ao dashboard onde o usuário faz perguntas em linguagem natural sobre suas finanças: "Quanto gastei com alimentação em março?", "Qual banco concentra mais meus gastos?". O contexto enviado ao modelo é o DataFrame de transações do usuário serializado.
 
 **Categorização Automática de Transações**  
-Few-shot prompting para classificar automaticamente transações por categoria (alimentação, transporte, lazer, saúde) a partir da descrição livre. Demonstra NLP aplicado a dados financeiros.
+Few-shot prompting para classificar automaticamente transações por categoria a partir da descrição livre.
 
 **Detecção de Anomalias**  
-Modelo de isolation forest ou DBSCAN para identificar transações fora do padrão histórico do usuário. Alertas no dashboard quando um gasto anômalo é detectado.
+Modelo de isolation forest ou DBSCAN para identificar transações fora do padrão histórico do usuário.
 
 **Previsão de Saldo (Time Series)**  
-Prophet ou ARIMA sobre o histórico de transações para projetar o saldo dos próximos 30 dias. Visualização no dashboard com intervalo de confiança.
+Prophet ou ARIMA sobre o histórico de transações para projetar o saldo dos próximos 30 dias com intervalo de confiança.
 
 ---
 
 ### Fase 4 — Qualidade de Produto
 
 **API REST com FastAPI**  
-Separar o backend da camada de apresentação. FastAPI expõe endpoints `/transactions`, `/summary`, `/predict`. O Streamlit consome a API. Permite futuramente um frontend React ou mobile.
+Separar o backend da camada de apresentação. FastAPI expõe endpoints `/transactions`, `/summary`, `/predict`. O Streamlit consome a API.
 
 **Containerização completa**  
-`docker-compose.yml` com serviços: `app` (Streamlit), `api` (FastAPI), `db` (PostgreSQL), `minio`, `airflow`. Um único `docker compose up` sobe todo o ambiente.
+`docker-compose.yml` com serviços: `app` (Streamlit), `api` (FastAPI), `db` (PostgreSQL), `minio`, `airflow`.
 
 **AWS CDK para infraestrutura cloud (opcional)**  
-Stack CDK para deploy na AWS: RDS PostgreSQL, ECS Fargate para os serviços, S3 em vez de MinIO, CloudWatch para observabilidade.
+Stack CDK para deploy na AWS: RDS PostgreSQL, ECS Fargate, S3 em vez de MinIO, CloudWatch para observabilidade.
 
 ---
 
@@ -198,13 +235,14 @@ Stack CDK para deploy na AWS: RDS PostgreSQL, ECS Fargate para os serviços, S3 
 | Domínio | Como é evidenciado neste projeto |
 |---------|----------------------------------|
 | Engenharia de Dados | Pipeline de ingestão (manual + bulk CSV), modelagem relacional, ETL com Pandas |
-| Data Warehouse | dbt models com linhagem documentada sobre PostgreSQL |
-| Orquestração | DAGs Airflow para pipelines recorrentes |
-| Produto de Dados | Aplicação end-to-end com auth, UI, analytics e export |
-| IA Aplicada | LLM para Q&A financeiro, NLP para categorização, anomaly detection |
-| MLOps | Monitoramento de drift com Evidently, versionamento de modelos |
-| Infraestrutura | MinIO, Docker, AWS CDK |
-| Boas Práticas | Tipagem, docstrings, modularização, testes, CI/CD |
+| Visualização | Sankey hierárquico 3 níveis, gráficos interativos Plotly, filtro temporal dinâmico |
+| Produto de Dados | Aplicação end-to-end com auth, UI, analytics, CRUD completo e export |
+| Data Warehouse | dbt models com linhagem documentada sobre PostgreSQL *(roadmap)* |
+| Orquestração | DAGs Airflow para pipelines recorrentes *(roadmap)* |
+| IA Aplicada | LLM para Q&A financeiro, NLP para categorização, anomaly detection *(roadmap)* |
+| MLOps | Monitoramento de drift com Evidently, versionamento de modelos *(roadmap)* |
+| Infraestrutura | MinIO, Docker, AWS CDK *(roadmap)* |
+| Boas Práticas | Tipagem, modularização, migração de schema, separação de responsabilidades |
 
 ---
 
