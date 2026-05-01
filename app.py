@@ -5,8 +5,9 @@ import streamlit as st  # type: ignore
 from modules.form import transaction_form_page
 from modules.dashboard import dashboard_page
 from modules.auth import login_page, signup_page
-from modules import db_utils # Import db_utils
-from modules.config import APP_ICON, FORM_ICON, DASHBOARD_ICON, LOGIN_ICON, SIGNUP_ICON
+from modules.chat import chat_page
+from modules import db_utils
+from modules.config import APP_ICON, FORM_ICON, DASHBOARD_ICON, CHAT_ICON, LOGIN_ICON, SIGNUP_ICON
 
 # --- Configurações Iniciais do Streamlit ---
 st.set_page_config(
@@ -46,10 +47,14 @@ else:
     
     if st.sidebar.button(f"{FORM_ICON} Registrar Transação", use_container_width=True, key="sidebar_to_form"):
         st.session_state['page'] = "form"
-        st.rerun() # Use rerun for page changes
+        st.rerun()
 
     if st.sidebar.button(f"{DASHBOARD_ICON} Meu Dashboard", use_container_width=True, key="sidebar_to_dashboard"):
         st.session_state['page'] = "dashboard"
+        st.rerun()
+
+    if st.sidebar.button(f"{CHAT_ICON} Assistente IA", use_container_width=True, key="sidebar_to_chat"):
+        st.session_state['page'] = "chat"
         st.rerun()
 
     st.sidebar.markdown("---")
@@ -65,6 +70,8 @@ else:
         transaction_form_page(st.session_state['username'])
     elif st.session_state['page'] == "dashboard":
         dashboard_page(st.session_state['username'])
-    else: # Fallback se algo der errado com o estado da página
-        st.session_state['page'] = "form" # Default to form if logged in and page state is odd
+    elif st.session_state['page'] == "chat":
+        chat_page(st.session_state['username'])
+    else:
+        st.session_state['page'] = "form"
         transaction_form_page(st.session_state['username'])
