@@ -1,3 +1,5 @@
 pandas
 streamlit
 plotly
+anthropic
+python-dotenv

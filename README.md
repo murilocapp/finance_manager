@@ -1,6 +1,6 @@
 # 💰 Finance Manager — Gerenciador Financeiro Pessoal
 
-> **Status:** MVP funcional com analytics avançado | Stack: Python · Streamlit · SQLite · Plotly  
+> **Status:** MVP + Agente IA integrado | Stack: Python · Streamlit · SQLite · Plotly · Claude API  
 > **Autor:** Murilo Appugliese — Data Science/Engineering @ Hospital Albert Einstein | Mestrando Eng. Biomédica @ UFABC
 
 ---
@@ -18,6 +18,7 @@ finance_manager/
 ├── app.py                    # Entry point — roteamento de páginas e gestão de sessão
 ├── requirements.txt          # Dependências Python
 ├── transaction_template.csv  # Template para upload em lote (inclui coluna categoria)
+├── .env.example              # Template de variáveis de ambiente (ANTHROPIC_API_KEY)
 ├── .devcontainer/
 │   └── devcontainer.json     # Configuração GitHub Codespaces (Python 3.11)
 └── modules/
@@ -26,7 +27,9 @@ finance_manager/
     ├── auth.py               # Páginas de login e cadastro
     ├── db_utils.py           # Camada de acesso a dados (SQLite) — CRUD completo
     ├── form.py               # Formulário de registro de transação
-    └── dashboard.py          # Dashboard analítico — gráficos, filtros, edição
+    ├── dashboard.py          # Dashboard analítico — gráficos, filtros, edição
+    ├── agent.py              # Agente Claude — tool use, loop agentic, execução de tools
+    └── chat.py               # Página de chat — UI Streamlit para o agente
 ```
 
 ### Modelo de Dados (SQLite)
@@ -38,6 +41,20 @@ finance_manager/
 | `financas_<username>` | Transações: `id`, `tipo`, `valor`, `tipo_cartao`, `banco`, `descricao`, `categoria`, `data_hora` |
 
 > Migração automática: tabelas antigas sem a coluna `categoria` recebem `ALTER TABLE` no primeiro acesso.
+
+---
+
+## ⚙️ Configuração
+
+### Variáveis de ambiente
+
+```bash
+cp .env.example .env
+# Edite .env e adicione sua chave:
+# ANTHROPIC_API_KEY=sk-ant-...
+```
+
+A API key é necessária apenas para o Assistente IA. O restante da aplicação funciona sem ela.
 
 ---
 
@@ -100,6 +117,27 @@ Fontes de receita ──→ Orçamento Total ──→ Gastos (agregado) ──�
 - Labels em preto destacado (Arial Black)
 - Nós agregados "Gastos" e "Investimentos" aparecem apenas quando há transações do tipo
 
+### Assistente IA — Linguagem Natural → Transação
+
+**Agente conversacional integrado ao Streamlit** (`modules/agent.py` + `modules/chat.py`)
+
+- Registro por texto livre: *"Gastei 45 reais no almoço hoje no Nubank, débito"*
+- Agente infere todos os campos (tipo, valor, categoria, banco, forma de pagamento, data)
+- Confirmação obrigatória antes de salvar — usuário revisa o card antes de confirmar
+- Consultas em linguagem natural: *"Quanto gastei este mês?"*, *"Mostre meus investimentos"*
+- Contexto dinâmico enviado ao modelo: categorias do usuário, bancos já cadastrados, data atual, últimas 5 transações
+- Dashboard atualiza automaticamente após salvar via agente
+
+**Tools disponíveis para o agente:**
+
+| Tool | Descrição |
+|------|-----------|
+| `create_transaction` | Cria transação com todos os campos validados |
+| `query_transactions` | Consulta por período, tipo ou categoria |
+| `get_summary` | Métricas consolidadas (receitas, gastos, investimentos, saldo) |
+
+**Modelo:** `claude-sonnet-4-6` via Anthropic API (`tool_use`)
+
 ### Infraestrutura
 - Configurado para rodar direto no **GitHub Codespaces** via `devcontainer.json`
 - Script `testes/run_examples.sh` para popular o banco com dados de teste
@@ -112,20 +150,38 @@ Fontes de receita ──→ Orçamento Total ──→ Gastos (agregado) ──�
 
 ```bash
 Python >= 3.11
-pip
+make
 ```
 
-### Instalação
+### Setup com Makefile (recomendado)
 
 ```bash
 git clone <repo-url>
 cd finance_manager
-pip install -r requirements.txt
+make setup   # cria venv, instala deps e solicita ANTHROPIC_API_KEY via CLI
+make run     # inicia o Streamlit em http://localhost:8501
 ```
 
-### Execução
+Comandos disponíveis:
+
+| Comando | Ação |
+|---------|------|
+| `make setup` | Cria venv + instala deps + gera `.env` |
+| `make install` | Instala/atualiza dependências |
+| `make env` | Cria `.env` a partir do `.env.example` |
+| `make run` | Inicia o Streamlit |
+| `make test` | Popula banco com dados de teste |
+| `make clean` | Remove venv e cache |
+
+### Setup manual
 
 ```bash
+git clone <repo-url>
+cd finance_manager
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+make env               # solicita ANTHROPIC_API_KEY via CLI e salva no .env
 streamlit run app.py
 ```
 
@@ -143,71 +199,204 @@ O projeto está configurado para iniciar automaticamente no Codespaces. O Stream
 pandas
 streamlit
 plotly
+anthropic
+python-dotenv
 ```
 
 ---
 
-## 🔮 Roadmap — Evolução para Portfolio de Dados & IA
+## 🔮 Roadmap — Transformação em Sistema com Agente Integrado
 
-> As seções abaixo descrevem como transformar este projeto em um portfólio de alto nível, demonstrando capacidade de construção de produtos de dados end-to-end com IA integrada.
+> Roteiro de evolução do MVP atual para um produto de dados com agente financeiro conversacional, análise inteligente de períodos e integração omnichannel via WhatsApp.
 
----
-
-### Fase 1 — Fundação Robusta (sem quebrar o que existe)
-
-**Substituir SQLite por PostgreSQL (local via Docker)**  
-O modelo multi-tabela por usuário não escala. Consolidar em schema único com `user_id` como FK em uma tabela `transactions` resolve isso e prepara o terreno para conectores externos.
-
-**Adicionar bcrypt para hashing de senhas**  
-SHA-256 direto não é adequado para senhas. `bcrypt` ou `argon2-cffi` aplicam salt e stretching, alinhando ao padrão de produção.
-
-**Cobertura mínima de testes**  
-`pytest` + `pytest-cov` nas funções de `db_utils.py` e nas transformações do dashboard. CI via GitHub Actions executando os testes a cada push.
+```
+MVP Atual → Fase 1 (Fundação) → Fase 2 (Investimentos Acumulados)
+         → Fase 3 (Agente: NL → Transação) → Fase 4 (Agente Analista)
+         → Fase 5 (Infra & Qualidade) → Fase 6 (WhatsApp)
+```
 
 ---
 
-### Fase 2 — Stack Moderna de Dados
+### Fase 1 — Fundação Robusta
 
-**Apache Airflow para orquestração de pipelines**  
-Implementar DAGs para: sincronização de extratos bancários simulados, geração de relatórios periódicos, e triggers de alertas financeiros.
+Pré-requisito técnico para as fases de agente. Nenhuma feature nova visível ao usuário, mas garante que o sistema aguente os casos de uso seguintes.
 
-**MinIO como object storage**  
-Armazenar os CSVs exportados, backups do banco e futuramente PDFs de relatórios no MinIO local, em vez do filesystem.
+**Substituir SQLite por PostgreSQL (Docker)**  
+Consolidar o modelo multi-tabela por usuário em schema único: tabela `transactions` com `user_id` como FK. O padrão atual não escala e dificulta queries analíticas necessárias para o agente.
 
-**dbt para transformações analíticas**  
-Criar modelos dbt sobre o PostgreSQL: `stg_transactions`, `fct_monthly_summary`, `dim_categories`. Documenta a linhagem dos dados e gera um catálogo automático via `dbt docs generate`.
+**bcrypt para hashing de senhas**  
+SHA-256 sem salt não é adequado para senhas. Trocar por `bcrypt` ou `argon2-cffi` alinha ao padrão de produção antes de expor o sistema a mais canais (ex: WhatsApp).
 
-**Evidently AI para monitoramento de dados**  
-Detectar drift nos padrões de gastos do usuário ao longo do tempo, com relatórios automáticos.
-
----
-
-### Fase 3 — IA Integrada ao Produto
-
-**Assistente Financeiro via LLM (Claude API)**  
-Módulo de chat integrado ao dashboard onde o usuário faz perguntas em linguagem natural sobre suas finanças: "Quanto gastei com alimentação em março?", "Qual banco concentra mais meus gastos?". O contexto enviado ao modelo é o DataFrame de transações do usuário serializado.
-
-**Categorização Automática de Transações**  
-Few-shot prompting para classificar automaticamente transações por categoria a partir da descrição livre.
-
-**Detecção de Anomalias**  
-Modelo de isolation forest ou DBSCAN para identificar transações fora do padrão histórico do usuário.
-
-**Previsão de Saldo (Time Series)**  
-Prophet ou ARIMA sobre o histórico de transações para projetar o saldo dos próximos 30 dias com intervalo de confiança.
-
----
-
-### Fase 4 — Qualidade de Produto
+**Cobertura de testes e CI**  
+`pytest` + `pytest-cov` cobrindo `db_utils.py` e as transformações analíticas. GitHub Actions executando a suíte a cada push — base para refatorar com segurança nas fases seguintes.
 
 **API REST com FastAPI**  
-Separar o backend da camada de apresentação. FastAPI expõe endpoints `/transactions`, `/summary`, `/predict`. O Streamlit consome a API.
+Separar backend da camada de apresentação. Endpoints: `POST /transactions`, `GET /transactions`, `GET /summary/{period}`, `POST /agent/parse`. O Streamlit e futuramente o WhatsApp consomem a mesma API.
 
-**Containerização completa**  
-`docker-compose.yml` com serviços: `app` (Streamlit), `api` (FastAPI), `db` (PostgreSQL), `minio`, `airflow`.
+---
 
-**AWS CDK para infraestrutura cloud (opcional)**  
-Stack CDK para deploy na AWS: RDS PostgreSQL, ECS Fargate, S3 em vez de MinIO, CloudWatch para observabilidade.
+### Fase 2 — Área de Investimentos Acumulados
+
+Antes de construir o agente analista, o sistema precisa de uma visão correta do patrimônio investido — incluindo a lógica de resgate.
+
+**Tabela de posição acumulada (`investment_positions`)**  
+Cada aporte do tipo `Investimento` incrementa a posição do ativo correspondente (agrupado por `categoria` + `banco`). A posição é calculada como uma running sum, não como saldo de caixa.
+
+```
+Posição atual = Σ aportes − Σ resgates (por ativo)
+```
+
+**Lógica de resgate via categoria `"Resgate de Investimentos"`**  
+Quando uma transação do tipo `Receita` chegar com `categoria = "Resgate de Investimentos"`, o sistema deduz automaticamente o valor da posição do ativo correspondente (identificado pelo campo `banco`). O saldo de caixa aumenta normalmente; o patrimônio investido diminui.
+
+Fluxo de dados:
+```
+Receita + categoria="Resgate de Investimentos" + banco="XP / Tesouro / ..."
+  → db_utils: registra como receita normal (fluxo de caixa)
+  → investment_positions: deduz do ativo correspondente (patrimônio)
+```
+
+**Painel de Investimentos no Dashboard**  
+Nova aba/seção com:
+- Tabela de posição atual por ativo (aporte acumulado − resgates)
+- Linha do tempo de evolução do patrimônio investido
+- Distribuição por categoria (Renda Fixa / Variável / Fundos / etc.) em gráfico de área empilhada
+- Rentabilidade implícita: `(posição atual − total aportado) / total aportado × 100%` *(requer input manual de valor de mercado ou integração futura com API de cotações)*
+
+---
+
+### ~~Fase 3 — Agente: Linguagem Natural → Transação~~ ✅ Implementado
+
+Ver seção **Assistente IA** em *O que está implementado* acima.
+
+---
+
+### Fase 4 — Agente Analista Financeiro
+
+O agente deixa de ser apenas um parser e passa a atuar proativamente como consultor financeiro do usuário.
+
+**Análise de período sob demanda**  
+Usuário solicita: *"Analise meu último mês"* ou *"Compare meu trimestre atual com o anterior"*. O agente recebe o DataFrame serializado do período e retorna um relatório estruturado:
+
+```
+📊 Análise — Abril 2025
+
+GASTOS
+• Alimentação representa 38% dos gastos totais (+12% vs março)
+• Assinaturas cresceram R$ 85 sem contrapartida identificada
+• 3 gastos acima de R$ 200 em Lazer na mesma semana (dias 18-20)
+
+INVESTIMENTOS  
+• Taxa de investimento: 8% da receita (meta recomendada: ≥ 20%)
+• Concentração em Renda Fixa: 100% — considere diversificar
+
+OPORTUNIDADES
+1. Reduzir Alimentação em R$ 150/mês → R$ 1.800/ano
+2. Cancelar assinaturas não recorrentes → R$ 85/mês livre
+3. Redirecionar 10% do saldo final para Renda Variável
+```
+
+**Ferramenta `analyze_period`**  
+Recebe `start_date`, `end_date` e `comparison_period` (opcional). Calcula variações, identifica anomalias de gastos, aponta concentrações e gera recomendações priorizadas por impacto financeiro.
+
+**Ferramenta `forecast_balance`**  
+Projeção de saldo para os próximos 30/60/90 dias baseada na média histórica por categoria, com alertas para meses com gastos sazonais conhecidos (ex: IPTU, férias).
+
+**Detecção de padrões e alertas proativos**  
+- Gasto recorrente novo detectado (ex: nova assinatura)
+- Mês sem aporte em investimentos
+- Saldo disponível caiu abaixo de X% da receita média
+- Categoria de gasto cresceu >30% vs média dos 3 meses anteriores
+
+**Memória de conversa por sessão**  
+O agente mantém o contexto da conversa dentro da sessão Streamlit, permitindo perguntas encadeadas: *"E se eu cortar os gastos com lazer pela metade?"* após uma análise prévia.
+
+---
+
+### Fase 5 — Stack de Dados & Qualidade de Produto
+
+**dbt para transformações analíticas**  
+Modelos sobre o PostgreSQL: `stg_transactions`, `fct_monthly_summary`, `fct_investment_positions`, `dim_categories`. Linhagem documentada e catálogo via `dbt docs generate`. O agente analista consome as views dbt em vez de calcular no Python.
+
+**Apache Airflow para orquestração**  
+DAGs para: geração de relatório mensal automático (PDF via Evidently + Claude), detecção de anomalias agendada, backup do banco para MinIO.
+
+**MinIO como object storage**  
+Armazenar relatórios gerados, CSVs exportados e snapshots do banco. Substituível por S3 na nuvem sem mudança de interface.
+
+**Containerização completa**
+```yaml
+# docker-compose.yml
+services:
+  app:        # Streamlit
+  api:        # FastAPI
+  db:         # PostgreSQL
+  minio:      # Object storage
+  airflow:    # Orquestração
+  worker:     # Celery worker para tasks assíncronas (parsing NL, análise)
+```
+
+**AWS CDK (deploy opcional)**  
+Stack CDK: RDS PostgreSQL, ECS Fargate para app e api, S3 em vez de MinIO, CloudWatch para observabilidade, API Gateway na frente do FastAPI.
+
+---
+
+### Fase 6 — Integração WhatsApp
+
+O mesmo agente da Fase 3 passa a operar via WhatsApp, permitindo registrar transações sem abrir o dashboard.
+
+**Arquitetura**
+
+```
+WhatsApp (usuário)
+    ↓ mensagem
+Twilio / Meta Cloud API (webhook)
+    ↓ POST /webhook/whatsapp
+FastAPI (worker assíncrono)
+    ↓ autenticação por número de telefone
+Agente Claude (Fase 3 reutilizado)
+    ↓ tool call → create_transaction / query / analyze
+PostgreSQL
+    ↓ confirmação formatada
+WhatsApp (resposta ao usuário)
+```
+
+**Autenticação por número de telefone**  
+Cada usuário vincula seu número ao account no dashboard (`settings` → *Conectar WhatsApp*). O webhook valida o `from` da mensagem contra a tabela `user_phone_bindings` antes de processar.
+
+**Fluxo de registro de transação via WhatsApp**
+
+```
+Usuário: "Paguei 120 de luz hoje, Débito no Neon"
+
+Bot: ✅ Transação identificada:
+     • Tipo: Gasto
+     • Valor: R$ 120,00
+     • Categoria: Moradia
+     • Banco: Neon
+     • Pagamento: Débito
+     • Data: 28/04/2025
+
+     Confirmar? Responda *sim* para salvar ou corrija o que precisar.
+
+Usuário: "sim"
+Bot: 💾 Salvo! Saldo do mês: R$ 1.340,00
+```
+
+**Comandos especiais via WhatsApp**
+
+| Comando | Resposta do agente |
+|---------|--------------------|
+| `resumo` | Métricas do mês atual (receitas, gastos, saldo) |
+| `analise` | Análise do período atual com recomendações |
+| `investimentos` | Posição atual dos investimentos acumulados |
+| `ajuda` | Lista de comandos disponíveis |
+
+**Considerações de implementação**
+- **Twilio** é a rota mais rápida para prototipagem (sandbox gratuito, SDK Python)
+- **Meta Cloud API** é necessária para produção (número de telefone oficial da empresa, aprovação de templates)
+- Mensagens de análise longas são quebradas em múltiplas mensagens ou enviadas como documento PDF gerado on-the-fly
+- Rate limiting por usuário para evitar abuso da API Claude
 
 ---
 
@@ -221,7 +410,7 @@ Stack CDK para deploy na AWS: RDS PostgreSQL, ECS Fargate, S3 em vez de MinIO, C
 | Banco de dados | PostgreSQL |
 | Object Storage | MinIO |
 | Transformações | dbt |
-| IA / LLM | Claude API (Anthropic) |
+| IA / LLM | Claude API (Anthropic) — claude-sonnet-4-6, tool use |
 | ML | scikit-learn, Prophet |
 | Monitoramento | Evidently AI |
 | IaC | AWS CDK |
@@ -239,7 +428,7 @@ Stack CDK para deploy na AWS: RDS PostgreSQL, ECS Fargate, S3 em vez de MinIO, C
 | Produto de Dados | Aplicação end-to-end com auth, UI, analytics, CRUD completo e export |
 | Data Warehouse | dbt models com linhagem documentada sobre PostgreSQL *(roadmap)* |
 | Orquestração | DAGs Airflow para pipelines recorrentes *(roadmap)* |
-| IA Aplicada | LLM para Q&A financeiro, NLP para categorização, anomaly detection *(roadmap)* |
+| IA Aplicada | Agente conversacional com Claude API + tool use: NL → transação, consultas e resumos financeiros |
 | MLOps | Monitoramento de drift com Evidently, versionamento de modelos *(roadmap)* |
 | Infraestrutura | MinIO, Docker, AWS CDK *(roadmap)* |
 | Boas Práticas | Tipagem, modularização, migração de schema, separação de responsabilidades |

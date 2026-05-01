@@ -4,6 +4,7 @@ import os
 DB_MASTER_NAME = 'gerenciador_financas.db'
 FORM_ICON = "📝"
 DASHBOARD_ICON = "📊"
+CHAT_ICON = "🤖"
 LOGIN_ICON = "🔑"
 SIGNUP_ICON = "👤➕"
 APP_ICON = "💰"
